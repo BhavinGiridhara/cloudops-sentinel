@@ -51,6 +51,7 @@ resource "aws_lambda_function" "detection" {
   environment {
     variables = {
       INCIDENT_TABLE_NAME = aws_dynamodb_table.incidents.name
+      SNS_TOPIC_ARN       = aws_sns_topic.incident_alerts.arn
     }
   }
 
