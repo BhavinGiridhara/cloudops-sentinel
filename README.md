@@ -1,31 +1,31 @@
 # CloudOps Sentinel
 
-CloudOps Sentinel is a serverless AWS incident monitoring and alerting platform built with Terraform. It demonstrates an event-driven cloud architecture that ingests, processes, stores, monitors, and alerts on incidents using fully managed AWS services.
+CloudOps Sentinel is a production-inspired serverless incident monitoring platform built on AWS using Terraform. It demonstrates how modern cloud applications ingest, process, monitor, and respond to operational incidents using fully managed AWS services.
 
 ---
 
-## Architecture
+# Architecture
 
 ![CloudOps Sentinel Architecture](docs/architecture.png)
 
 ---
 
-## Features
+# Features
 
 - REST API built with Amazon API Gateway
 - Serverless incident processing using AWS Lambda
 - Asynchronous event-driven architecture using Amazon SQS
 - Incident storage using Amazon DynamoDB
-- Email notifications for high and critical incidents using Amazon SNS
-- Automated synthetic health checks using Amazon EventBridge
+- Automatic email notifications using Amazon SNS
+- Synthetic health checks using Amazon EventBridge
 - CloudWatch dashboards for operational visibility
-- CloudWatch alarms for automated monitoring
+- CloudWatch alarms for automated alerting
 - Infrastructure managed entirely with Terraform
 - Least-privilege IAM permissions
 
 ---
 
-## Skills Demonstrated
+# Skills Demonstrated
 
 - Infrastructure as Code (Terraform)
 - Serverless Architecture
@@ -38,7 +38,7 @@ CloudOps Sentinel is a serverless AWS incident monitoring and alerting platform 
 
 ---
 
-## AWS Services Used
+# AWS Services Used
 
 - Amazon API Gateway
 - AWS Lambda
@@ -52,77 +52,125 @@ CloudOps Sentinel is a serverless AWS incident monitoring and alerting platform 
 
 ---
 
-## Architecture Flow
+# Real-World Use Case
 
-1. Client sends an incident to Amazon API Gateway.
-2. API Gateway invokes the Ingestion Lambda.
-3. Ingestion Lambda validates the request and publishes the incident to Amazon SQS.
-4. Detection Lambda consumes the SQS message.
-5. Detection Lambda stores the incident in Amazon DynamoDB.
-6. High and Critical incidents are published to Amazon SNS.
-7. Amazon SNS sends email notifications.
-8. Amazon EventBridge runs a Health Check Lambda every five minutes to generate synthetic incidents.
-9. CloudWatch dashboards and alarms continuously monitor the platform.
+CloudOps Sentinel simulates an internal incident management platform used by cloud operations and Site Reliability Engineering (SRE) teams.
+
+When a production service experiences an issue (such as high latency, payment failures, or an outage), another application submits an incident through the REST API.
+
+CloudOps Sentinel automatically:
+
+- Accepts the incident
+- Queues it using Amazon SQS
+- Processes it asynchronously
+- Stores it in DynamoDB
+- Sends email alerts for HIGH and CRITICAL incidents
+- Monitors the platform using CloudWatch dashboards and alarms
 
 ---
 
-## Example Request
+# Architecture Flow
 
-```bash
-curl -X POST \
-https://5wzgi9qewd.execute-api.us-east-1.amazonaws.com/incidents \
--H "Content-Type: application/json" \
--d '{
-  "service":"checkout-api",
-  "incident_type":"HighLatency",
-  "severity":"HIGH",
-  "message":"Checkout latency exceeded threshold"
-}'
+1. A production application reports an incident through Amazon API Gateway.
+2. API Gateway invokes the Ingestion Lambda.
+3. The Ingestion Lambda validates the request and publishes it to Amazon SQS.
+4. The Detection Lambda consumes the queue.
+5. The incident is stored in Amazon DynamoDB.
+6. HIGH and CRITICAL incidents are published to Amazon SNS.
+7. Amazon SNS sends an email notification.
+8. Amazon EventBridge executes scheduled health checks every five minutes.
+9. Amazon CloudWatch continuously monitors the health of the platform.
+
+---
+
+# Demo
+
+The following workflow demonstrates the complete incident-processing pipeline.
+
+1. Submit a critical incident through the REST API.
+2. API Gateway immediately accepts the request.
+3. The Ingestion Lambda places the incident into Amazon SQS.
+4. The Detection Lambda processes the message.
+5. Amazon DynamoDB stores the incident.
+6. Amazon SNS sends an email alert.
+7. Amazon CloudWatch records the activity and updates dashboards.
+
+This simulates how an operations team automatically receives notifications when production services begin failing.
+
+---
+
+# Example Request (PowerShell)
+
+```powershell
+$body = @{
+    service       = "checkout-api"
+    incident_type = "CheckoutOutage"
+    severity      = "CRITICAL"
+    message       = "Customers cannot complete checkout"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri "https://<api-id>.execute-api.us-east-1.amazonaws.com/incidents" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body $body
 ```
 
 ---
 
-## Example Response
+# Example Response
 
 ```json
 {
-  "message": "Incident accepted",
-  "incident_id": "generated-incident-id",
-  "sqs_message_id": "generated-message-id"
+    "message": "Incident accepted",
+    "incident_id": "generated-incident-id",
+    "sqs_message_id": "generated-message-id"
 }
 ```
 
 ---
 
-## Monitoring
+# Monitoring
 
-CloudOps Sentinel uses Amazon CloudWatch to monitor:
+CloudOps Sentinel continuously monitors:
 
 - API Gateway requests and errors
-- Lambda invocations and failures
-- SQS queue depth
-- SNS notification activity
+- Lambda invocations
+- Lambda errors
+- Amazon SQS queue depth
+- Amazon SNS notifications
 
-CloudWatch alarms notify operators when:
+CloudWatch alarms automatically notify operators when:
 
 - Lambda Errors > 0
 - API Gateway 5XX Errors > 0
 - SQS Queue Depth > 10
 
-### CloudWatch Dashboard
-
-![CloudWatch Dashboard](docs/cloudwatch-dashboard.png)
 ---
 
-## Project Structure
+## CloudWatch Dashboard
+
+![CloudWatch Dashboard](docs/cloudwatch-dashboard.png)
+
+---
+
+## SNS Incident Alert
+
+![SNS Incident Alert](docs/screenshots/sns-alert-email.png)
+
+---
+
+# Project Structure
 
 ```text
 cloudops-sentinel/
 │
 ├── docs/
 │   ├── architecture.png
+│   ├── cloudwatch-dashboard.png
 │   └── screenshots/
-│       └── cloudwatch-dashboard.png
+│       ├── sns-alert-email.png
+│       └── dynamodb-record.png
 │
 ├── infrastructure/
 │   └── environments/
@@ -145,21 +193,23 @@ cloudops-sentinel/
 
 ---
 
-## What I Learned
+# What I Learned
 
 - Designing production-style serverless cloud architectures
 - Building event-driven systems using Amazon SQS
-- Deploying AWS infrastructure with Terraform
-- Implementing monitoring and alerting using CloudWatch and SNS
+- Deploying AWS infrastructure using Terraform
+- Monitoring distributed systems with Amazon CloudWatch
+- Implementing automated notifications using Amazon SNS
 - Applying least-privilege IAM permissions
-- Creating scalable cloud applications using managed AWS services
+- Building scalable cloud-native applications using managed AWS services
 
 ---
 
-## Future Improvements
+# Future Improvements
 
-- Add GitHub Actions CI/CD pipeline
-- Add Dead Letter Queue (DLQ) support
-- Implement API authentication and authorization
-- Refactor Terraform into reusable modules
-- Support multiple deployment environments (dev, staging, production)
+- GitHub Actions CI/CD pipeline
+- Dead Letter Queue (DLQ) support
+- API authentication and authorization
+- Terraform modules
+- Multi-environment deployments
+- Web dashboard for incident submission
