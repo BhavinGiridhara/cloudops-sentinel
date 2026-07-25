@@ -48,7 +48,6 @@ CloudOps Sentinel is a production-inspired serverless incident monitoring platfo
 - Amazon EventBridge
 - Amazon CloudWatch
 - AWS IAM
-- Terraform
 
 ---
 
