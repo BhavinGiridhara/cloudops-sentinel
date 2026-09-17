@@ -27,6 +27,9 @@ crash.*.log
 terraform.tfvars
 *.auto.tfvars
 
+# Generated Lambda deployment packages
+*.zip
+
 # VS Code
 .vscode/
 

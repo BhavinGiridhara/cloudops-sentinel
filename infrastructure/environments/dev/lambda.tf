@@ -1,10 +1,28 @@
+data "archive_file" "ingestion" {
+  type        = "zip"
+  source_file = "${path.module}/../../../services/ingestion/handler.py"
+  output_path = "${path.module}/ingestion.zip"
+}
+
+data "archive_file" "detection" {
+  type        = "zip"
+  source_file = "${path.module}/../../../services/detection/handler.py"
+  output_path = "${path.module}/detection.zip"
+}
+
+data "archive_file" "health_check" {
+  type        = "zip"
+  source_file = "${path.module}/../../../services/health_check/handler.py"
+  output_path = "${path.module}/health_check.zip"
+}
+
 resource "aws_lambda_function" "ingestion" {
   function_name = "cloudops-sentinel-dev-ingestion"
 
-  filename         = "${path.module}/../../../services/ingestion/ingestion.zip"
-  source_code_hash = filebase64sha256("${path.module}/../../../services/ingestion/ingestion.zip")
+  filename         = data.archive_file.ingestion.output_path
+  source_code_hash = data.archive_file.ingestion.output_base64sha256
 
-  role    = aws_iam_role.lambda_execution_role.arn
+  role    = aws_iam_role.ingestion_lambda.arn
   handler = "handler.lambda_handler"
   runtime = "python3.12"
 
@@ -18,8 +36,8 @@ resource "aws_lambda_function" "ingestion" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic_execution,
-    aws_iam_role_policy.lambda_data_access
+    aws_iam_role_policy_attachment.ingestion_basic_execution,
+    aws_iam_role_policy.ingestion_queue_access
   ]
 
   tags = {
@@ -38,10 +56,10 @@ output "ingestion_lambda_arn" {
 resource "aws_lambda_function" "detection" {
   function_name = "cloudops-sentinel-dev-detection"
 
-  filename         = "${path.module}/../../../services/detection/detection.zip"
-  source_code_hash = filebase64sha256("${path.module}/../../../services/detection/detection.zip")
+  filename         = data.archive_file.detection.output_path
+  source_code_hash = data.archive_file.detection.output_base64sha256
 
-  role    = aws_iam_role.lambda_execution_role.arn
+  role    = aws_iam_role.detection_lambda.arn
   handler = "handler.lambda_handler"
   runtime = "python3.12"
 
@@ -56,8 +74,8 @@ resource "aws_lambda_function" "detection" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic_execution,
-    aws_iam_role_policy.lambda_data_access
+    aws_iam_role_policy_attachment.detection_basic_execution,
+    aws_iam_role_policy.detection_data_access
   ]
 
   tags = {
@@ -76,10 +94,10 @@ output "detection_lambda_arn" {
 resource "aws_lambda_function" "health_check" {
   function_name = "cloudops-sentinel-dev-health-check"
 
-  filename         = "${path.module}/../../../services/health_check/health_check.zip"
-  source_code_hash = filebase64sha256("${path.module}/../../../services/health_check/health_check.zip")
+  filename         = data.archive_file.health_check.output_path
+  source_code_hash = data.archive_file.health_check.output_base64sha256
 
-  role    = aws_iam_role.lambda_execution_role.arn
+  role    = aws_iam_role.health_check_lambda.arn
   handler = "handler.lambda_handler"
   runtime = "python3.12"
 
@@ -93,8 +111,8 @@ resource "aws_lambda_function" "health_check" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic_execution,
-    aws_iam_role_policy.lambda_data_access
+    aws_iam_role_policy_attachment.health_check_basic_execution,
+    aws_iam_role_policy.health_check_queue_access
   ]
 
   tags = {
