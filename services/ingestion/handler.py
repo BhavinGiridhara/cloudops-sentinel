@@ -10,91 +10,94 @@ import boto3
 sqs = boto3.client("sqs")
 QUEUE_URL = os.environ["INCIDENT_QUEUE_URL"]
 
-REQUIRED_FIELDS = ("service", "incident_type", "severity", "message")
-VALID_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+REQUIRED_FIELDS = (
+    "service",
+    "request_count",
+    "error_count",
+    "latency_p95_ms",
+)
 
 
-def _response(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
+def response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "statusCode": status_code,
         "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(body),
+        "body": json.dumps(payload),
     }
 
 
-def _request_data(event: dict[str, Any]) -> dict[str, Any]:
-    body = event.get("body", event)
+def parse_request(event: dict[str, Any]) -> dict[str, Any]:
+    if "body" not in event:
+        return event
 
+    body = event.get("body")
     if isinstance(body, str):
-        body = json.loads(body)
-
-    if not isinstance(body, dict):
-        raise ValueError("Request body must be a JSON object")
-
-    return body
+        return json.loads(body)
+    if isinstance(body, dict):
+        return body
+    return {}
 
 
-def _validation_errors(request_data: dict[str, Any]) -> list[str]:
-    errors = []
+def validate_telemetry(data: dict[str, Any]) -> str | None:
+    missing = [field for field in REQUIRED_FIELDS if field not in data]
+    if missing:
+        return f"Missing required fields: {', '.join(missing)}"
 
-    for field in REQUIRED_FIELDS:
-        value = request_data.get(field)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(f"{field} must be a non-empty string")
+    if not isinstance(data["service"], str) or not data["service"].strip():
+        return "service must be a non-empty string"
 
-    severity = request_data.get("severity")
-    if isinstance(severity, str) and severity.strip():
-        normalized_severity = severity.strip().upper()
-        if normalized_severity not in VALID_SEVERITIES:
-            allowed = ", ".join(sorted(VALID_SEVERITIES))
-            errors.append(f"severity must be one of: {allowed}")
+    for field in ("request_count", "error_count", "latency_p95_ms"):
+        value = data[field]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"{field} must be a number"
+        if value < 0:
+            return f"{field} cannot be negative"
 
-    return errors
+    if int(data["request_count"]) != data["request_count"]:
+        return "request_count must be a whole number"
+    if int(data["error_count"]) != data["error_count"]:
+        return "error_count must be a whole number"
+    if data["request_count"] <= 0:
+        return "request_count must be greater than zero"
+    if data["error_count"] > data["request_count"]:
+        return "error_count cannot exceed request_count"
+
+    return None
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     try:
-        request_data = _request_data(event)
-    except json.JSONDecodeError:
-        return _response(400, {"message": "Request body must contain valid JSON"})
-    except ValueError as error:
-        return _response(400, {"message": str(error)})
+        request_data = parse_request(event)
+        validation_error = validate_telemetry(request_data)
+        if validation_error:
+            return response(400, {"message": validation_error})
 
-    validation_errors = _validation_errors(request_data)
-    if validation_errors:
-        return _response(
-            400,
+        telemetry = {
+            "event_id": str(uuid4()),
+            "event_type": "TELEMETRY",
+            "service": request_data["service"].strip(),
+            "request_count": int(request_data["request_count"]),
+            "error_count": int(request_data["error_count"]),
+            "latency_p95_ms": float(request_data["latency_p95_ms"]),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        queue_response = sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps(telemetry),
+        )
+
+        return response(
+            202,
             {
-                "message": "Invalid incident request",
-                "errors": validation_errors,
+                "message": "Telemetry accepted",
+                "event_id": telemetry["event_id"],
+                "sqs_message_id": queue_response["MessageId"],
             },
         )
 
-    incident = {
-        "incident_id": str(uuid4()),
-        "record_type": "INCIDENT",
-        "service": request_data["service"].strip(),
-        "incident_type": request_data["incident_type"].strip(),
-        "severity": request_data["severity"].strip().upper(),
-        "message": request_data["message"].strip(),
-        "status": "RECEIVED",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    try:
-        response = sqs.send_message(
-            QueueUrl=QUEUE_URL,
-            MessageBody=json.dumps(incident),
-        )
+    except json.JSONDecodeError:
+        return response(400, {"message": "Request body must contain valid JSON"})
     except Exception as error:
-        print(f"Failed to ingest incident: {error}")
-        return _response(500, {"message": "Failed to accept incident"})
-
-    return _response(
-        202,
-        {
-            "message": "Incident accepted",
-            "incident_id": incident["incident_id"],
-            "sqs_message_id": response["MessageId"],
-        },
-    )
+        print(f"Failed to ingest telemetry: {error}")
+        return response(500, {"message": "Failed to accept telemetry"})

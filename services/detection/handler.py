@@ -1,9 +1,15 @@
 import json
 import os
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 import boto3
+
+try:
+    from .detector import classify_telemetry
+except ImportError:
+    from detector import classify_telemetry
 
 
 dynamodb = boto3.resource("dynamodb")
@@ -11,21 +17,16 @@ sns = boto3.client("sns")
 
 TABLE_NAME = os.environ["INCIDENT_TABLE_NAME"]
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
-
 table = dynamodb.Table(TABLE_NAME)
 
 ALERT_SEVERITIES = {"HIGH", "CRITICAL"}
 
 
 def publish_incident_alert(incident: dict[str, Any]) -> None:
-    severity = str(incident.get("severity", "UNKNOWN")).upper()
-    service = str(incident.get("service", "unknown-service"))
-    incident_type = str(incident.get("incident_type", "UnknownIncident"))
-    incident_id = str(incident.get("incident_id", "unknown"))
-    message = str(incident.get("message", "No incident message provided"))
-    status = str(incident.get("status", "UNKNOWN"))
-    created_at = str(incident.get("created_at", "unknown"))
-    detected_at = str(incident.get("detected_at", "unknown"))
+    severity = str(incident["severity"])
+    service = str(incident["service"])
+    incident_type = str(incident["incident_type"])
+    reasons = ", ".join(incident.get("detection_reasons", []))
 
     subject = f"[{severity}] {service} - {incident_type}"
     alert_body = f"""CloudOps Sentinel Incident Alert
@@ -33,14 +34,20 @@ def publish_incident_alert(incident: dict[str, Any]) -> None:
 Severity      : {severity}
 Service       : {service}
 Incident Type : {incident_type}
-Status        : {status}
+Status        : {incident['status']}
 
-Description
-{message}
+Why it was detected
+{reasons}
 
-Created At    : {created_at}
-Detected At   : {detected_at}
-Incident ID   : {incident_id}
+Observed telemetry
+Requests       : {incident['request_count']}
+Errors         : {incident['error_count']}
+Error Rate     : {incident['error_rate_percent']}%
+P95 Latency    : {incident['latency_p95_ms']} ms
+
+Created At     : {incident['created_at']}
+Detected At    : {incident['detected_at']}
+Incident ID    : {incident['incident_id']}
 
 This notification was generated automatically by CloudOps Sentinel.
 """
@@ -52,48 +59,81 @@ This notification was generated automatically by CloudOps Sentinel.
     )
 
 
-def _process_record(record: dict[str, Any]) -> bool:
-    incident = json.loads(record["body"])
-    if not isinstance(incident, dict):
-        raise ValueError("SQS message body must contain a JSON object")
+def build_incident(telemetry: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "incident_id": telemetry["event_id"],
+        "record_type": "INCIDENT",
+        "source_event_type": "TELEMETRY",
+        "service": telemetry["service"],
+        "incident_type": result["incident_type"],
+        "severity": result["severity"],
+        "status": "DETECTED",
+        "request_count": int(telemetry["request_count"]),
+        "error_count": int(telemetry["error_count"]),
+        "error_rate_percent": Decimal(str(result["error_rate_percent"])),
+        "latency_p95_ms": Decimal(str(telemetry["latency_p95_ms"])),
+        "detection_reasons": result["reasons"],
+        "message": f"Anomaly detected: {', '.join(result['reasons'])}",
+        "created_at": telemetry["created_at"],
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+    }
 
+
+def process_legacy_incident(incident: dict[str, Any]) -> bool:
+    """Preserves compatibility with any older queued incident messages."""
     severity = str(incident.get("severity", "UNKNOWN")).upper()
     incident["severity"] = severity
     incident["status"] = "DETECTED"
     incident["detected_at"] = datetime.now(timezone.utc).isoformat()
-
     table.put_item(Item=incident)
-
     if severity in ALERT_SEVERITIES:
         publish_incident_alert(incident)
         return True
-
     return False
 
 
-def lambda_handler(
-    event: dict[str, Any],
-    context: Any,
-) -> dict[str, Any]:
+def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     processed = 0
+    anomalies_detected = 0
     alerts_published = 0
-    batch_item_failures = []
 
     for record in event.get("Records", []):
-        try:
-            if _process_record(record):
+        payload = json.loads(record["body"])
+
+        if payload.get("event_type") != "TELEMETRY":
+            if process_legacy_incident(payload):
                 alerts_published += 1
             processed += 1
-        except Exception as error:
-            message_id = record.get("messageId")
-            print(f"Failed to process SQS message {message_id}: {error}")
-            if message_id:
-                batch_item_failures.append({"itemIdentifier": message_id})
-            else:
-                raise
+            continue
+
+        result = classify_telemetry(payload)
+        print(
+            json.dumps(
+                {
+                    "event_id": payload["event_id"],
+                    "service": payload["service"],
+                    "severity": result["severity"],
+                    "error_rate_percent": result["error_rate_percent"],
+                    "latency_p95_ms": payload["latency_p95_ms"],
+                    "is_anomaly": result["is_anomaly"],
+                }
+            )
+        )
+
+        if result["is_anomaly"]:
+            incident = build_incident(payload, result)
+            table.put_item(Item=incident)
+            anomalies_detected += 1
+
+            if result["severity"] in ALERT_SEVERITIES:
+                publish_incident_alert(incident)
+                alerts_published += 1
+
+        processed += 1
 
     return {
+        "statusCode": 200,
         "processed_records": processed,
+        "anomalies_detected": anomalies_detected,
         "alerts_published": alerts_published,
-        "batchItemFailures": batch_item_failures,
     }

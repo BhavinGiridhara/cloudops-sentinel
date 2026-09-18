@@ -1,8 +1,8 @@
 import json
 import os
-import uuid
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import boto3
 
@@ -12,29 +12,28 @@ QUEUE_URL = os.environ["INCIDENT_QUEUE_URL"]
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    incident = {
-        "incident_id": str(uuid.uuid4()),
-        "record_type": "INCIDENT",
+    telemetry = {
+        "event_id": str(uuid4()),
+        "event_type": "TELEMETRY",
         "source": "scheduled-health-check",
         "service": "payments-api",
-        "severity": "LOW",
-        "incident_type": "SyntheticHealthCheck",
-        "message": "Scheduled synthetic health check completed",
+        "request_count": 100,
+        "error_count": 1,
+        "latency_p95_ms": 250.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "status": "RECEIVED",
     }
 
     response = sqs.send_message(
         QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps(incident),
+        MessageBody=json.dumps(telemetry),
     )
 
     return {
         "statusCode": 200,
         "body": json.dumps(
             {
-                "message": "Synthetic health-check event queued",
-                "incident_id": incident["incident_id"],
+                "message": "Synthetic healthy telemetry queued",
+                "event_id": telemetry["event_id"],
                 "sqs_message_id": response["MessageId"],
             }
         ),
