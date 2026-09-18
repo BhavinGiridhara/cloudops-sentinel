@@ -20,44 +20,27 @@ ALERT_SEVERITIES = {"HIGH", "CRITICAL"}
 def publish_incident_alert(incident: dict[str, Any]) -> None:
     severity = str(incident.get("severity", "UNKNOWN")).upper()
     service = str(incident.get("service", "unknown-service"))
-    incident_type = str(
-        incident.get("incident_type", "UnknownIncident")
-    )
+    incident_type = str(incident.get("incident_type", "UnknownIncident"))
     incident_id = str(incident.get("incident_id", "unknown"))
-    message = str(
-        incident.get("message", "No incident message provided")
-    )
+    message = str(incident.get("message", "No incident message provided"))
     status = str(incident.get("status", "UNKNOWN"))
     created_at = str(incident.get("created_at", "unknown"))
     detected_at = str(incident.get("detected_at", "unknown"))
 
     subject = f"[{severity}] {service} - {incident_type}"
-
-    alert_body = f"""🚨 CloudOps Sentinel Incident Alert
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    alert_body = f"""CloudOps Sentinel Incident Alert
 
 Severity      : {severity}
 Service       : {service}
 Incident Type : {incident_type}
 Status        : {status}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 Description
-
 {message}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Created At    : {created_at}
 Detected At   : {detected_at}
-
-Incident ID
-
-{incident_id}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Incident ID   : {incident_id}
 
 This notification was generated automatically by CloudOps Sentinel.
 """
@@ -69,36 +52,48 @@ This notification was generated automatically by CloudOps Sentinel.
     )
 
 
+def _process_record(record: dict[str, Any]) -> bool:
+    incident = json.loads(record["body"])
+    if not isinstance(incident, dict):
+        raise ValueError("SQS message body must contain a JSON object")
+
+    severity = str(incident.get("severity", "UNKNOWN")).upper()
+    incident["severity"] = severity
+    incident["status"] = "DETECTED"
+    incident["detected_at"] = datetime.now(timezone.utc).isoformat()
+
+    table.put_item(Item=incident)
+
+    if severity in ALERT_SEVERITIES:
+        publish_incident_alert(incident)
+        return True
+
+    return False
+
+
 def lambda_handler(
     event: dict[str, Any],
     context: Any,
 ) -> dict[str, Any]:
     processed = 0
     alerts_published = 0
+    batch_item_failures = []
 
     for record in event.get("Records", []):
-        incident = json.loads(record["body"])
-
-        severity = str(
-            incident.get("severity", "UNKNOWN")
-        ).upper()
-
-        incident["severity"] = severity
-        incident["status"] = "DETECTED"
-        incident["detected_at"] = datetime.now(
-            timezone.utc
-        ).isoformat()
-
-        table.put_item(Item=incident)
-
-        if severity in ALERT_SEVERITIES:
-            publish_incident_alert(incident)
-            alerts_published += 1
-
-        processed += 1
+        try:
+            if _process_record(record):
+                alerts_published += 1
+            processed += 1
+        except Exception as error:
+            message_id = record.get("messageId")
+            print(f"Failed to process SQS message {message_id}: {error}")
+            if message_id:
+                batch_item_failures.append({"itemIdentifier": message_id})
+            else:
+                raise
 
     return {
-        "statusCode": 200,
         "processed_records": processed,
         "alerts_published": alerts_published,
+        "batchItemFailures": batch_item_failures,
     }
