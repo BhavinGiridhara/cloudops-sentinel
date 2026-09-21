@@ -6,8 +6,17 @@ data "archive_file" "ingestion" {
 
 data "archive_file" "detection" {
   type        = "zip"
-  source_file = "${path.module}/../../../services/detection/handler.py"
   output_path = "${path.module}/detection.zip"
+
+  source {
+    content  = file("${path.module}/../../../services/detection/handler.py")
+    filename = "handler.py"
+  }
+
+  source {
+    content  = file("${path.module}/../../../services/detection/detector.py")
+    filename = "detector.py"
+  }
 }
 
 data "archive_file" "health_check" {
