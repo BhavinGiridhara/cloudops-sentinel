@@ -144,7 +144,7 @@ CloudWatch alarms automatically notify operators when:
 
 - Lambda Errors > 0
 - API Gateway 5XX Errors > 0
-- SQS Queue Depth > 10
+- SQS Queue Depth > 500
 
 ---
 
