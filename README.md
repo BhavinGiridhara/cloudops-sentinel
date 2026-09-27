@@ -99,6 +99,12 @@ The final severity is the higher severity produced by the error-rate and latency
 
 # Demo
 
+For automatic measurement of actual application requests, see the
+[application instrumentation guide](docs/application-instrumentation.md).
+It includes a local HTTP application, WSGI middleware, periodic reporting, and
+healthy/error/slow traffic scenarios. The PowerShell demo below remains useful
+for submitting a fixed telemetry payload directly.
+
 The demo submits degraded production telemetry. The caller does **not** specify an incident type or severity; CloudOps Sentinel derives both from the measurements.
 
 ```powershell
